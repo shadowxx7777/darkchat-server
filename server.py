@@ -113,6 +113,29 @@ def login():
         "user_code": user["user_code"]
     })
 
+@app.route("/update_username", methods=["POST", "OPTIONS"])
+def update_username():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    data = request.get_json()
+    user_id = data.get("user_id")
+    username = data.get("username", "").strip()
+
+    if not user_id or not username:
+        return jsonify({"error": "بيانات ناقصة"}), 400
+
+    try:
+        conn = get_db()
+        conn.execute(
+            "UPDATE users SET username = ? WHERE id = ?",
+            (username, user_id)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "الاسم مستخدم مسبقاً"}), 409
+        
 @app.route("/find_user/<user_code>", methods=["GET"])
 def find_user(user_code):
     conn = get_db()
