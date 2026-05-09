@@ -8,7 +8,14 @@ import bcrypt
 import random
 import string
 import os
+import cloudinary
+import cloudinary.uploader
 
+cloudinary.config(
+    cloud_name = "dqg579k9q",
+    api_key = "10765149794639631",
+    api_secret = "gwLyhtchq2CTg9J8gJNq72gQDwg"
+)    
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24).hex()
 CORS(app, origins="*")
@@ -29,6 +36,7 @@ def init_db():
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         user_code TEXT UNIQUE NOT NULL,
+        avatar_ur1 TEXT DEFAULT'',
         created_at TEXT NOT NULL
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS messages (
@@ -112,6 +120,35 @@ def login():
         "username": user["username"],
         "user_code": user["user_code"]
     })
+@app.route("/upload_avatar", methods=["POST", "OPTIONS"])
+def upload_avatar():
+    if request.method == "OPTIONS":
+        return jsonify({}), 200
+    
+    user_id = request.form.get("user_id")
+    file = request.files.get("image")
+    
+    if not user_id or not file:
+        return jsonify({"error": "بيانات ناقصة"}), 400
+    
+    try:
+        result = cloudinary.uploader.upload(
+            file,
+            folder="darkchat_avatars",
+            public_id=f"avatar_{user_id}",
+            overwrite=True,
+            transformation=[{"width": 200, "height": 200, "crop": "fill"}]
+        )
+        avatar_url = result["secure_url"]
+        
+        conn = get_db()
+        conn.execute("UPDATE users SET avatar_url = ? WHERE id = ?", (avatar_url, user_id))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"status": "success", "avatar_url": avatar_url})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/update_username", methods=["POST", "OPTIONS"])
 def update_username():
@@ -135,7 +172,7 @@ def update_username():
         return jsonify({"status": "success"})
     except sqlite3.IntegrityError:
         return jsonify({"error": "الاسم مستخدم مسبقاً"}), 409
-        
+
 @app.route("/find_user/<user_code>", methods=["GET"])
 def find_user(user_code):
     conn = get_db()
