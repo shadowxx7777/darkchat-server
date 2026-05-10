@@ -3,19 +3,43 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
-
-void main() {
-  runApp(DarkChatApp());
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  final userId = prefs.getString('user_id');
+  final username = prefs.getString('username');
+  final userCode = prefs.getString('user_code');
+  runApp(DarkChatApp(
+    savedUserId: userId,
+    savedUsername: username,
+    savedUserCode: userCode,
+  ));
 }
 
 const String SERVER_URL = "https://darkchat-server-production.up.railway.app";
 
 class DarkChatApp extends StatelessWidget {
+  final String? savedUserId;
+  final String? savedUsername;
+  final String? savedUserCode;
+  
+  const DarkChatApp({this.savedUserId, this.savedUsername, this.savedUserCode});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'DarkChat',
       debugShowCheckedModeBanner: false,
+      locale: Locale('ar'),
+supportedLocales: [Locale('ar'), Locale('en')],
+localizationsDelegates: [
+  GlobalMaterialLocalizations.delegate,
+  GlobalWidgetsLocalizations.delegate,
+  GlobalCupertinoLocalizations.delegate,
+],
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: Color(0xFF0A0A0A),
         primaryColor: Color(0xFF7B2FBE),
@@ -24,7 +48,13 @@ class DarkChatApp extends StatelessWidget {
           secondary: Color(0xFF9D4EDD),
         ),
       ),
-      home: SplashScreen(),
+      home: savedUserId != null 
+  ? ChatListScreen(
+      userId: savedUserId!,
+      username: savedUsername!,
+      userCode: savedUserCode!,
+    )
+  : SplashScreen(),
     );
   }
 }
@@ -144,6 +174,10 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       final data = jsonDecode(res.body);
       if (res.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+await prefs.setString('user_id', data["user_id"]);
+await prefs.setString('username', data["username"] ?? _usernameController.text.trim());
+await prefs.setString('user_code', data["user_code"] ?? "");
      Navigator.pushReplacement(
   context,
   MaterialPageRoute(
@@ -379,16 +413,19 @@ class _ChatListScreenState extends State<ChatListScreen> {
             icon: Icon(Icons.person_add, color: Color(0xFF9D4EDD)),
             onPressed: _addFriend,
           ),
-          Padding(
-            padding: EdgeInsets.only(right: 12),
-            child: CircleAvatar(
-              backgroundColor: Color(0xFF7B2FBE),
-              child: Text(
-                widget.username[0].toUpperCase(),
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ),
+          IconButton(
+  icon: Icon(Icons.settings, color: Color(0xFF9D4EDD)),
+  onPressed: () => Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => SettingsScreen(
+        userId: widget.userId,
+        username: widget.username,
+        userCode: widget.userCode,
+      ),
+    ),
+  ),
+),
         ],
       ),
       body: _chats.isEmpty
@@ -803,5 +840,198 @@ class _ChatScreenState extends State<ChatScreen> {
     _msgController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+}
+// ═══════════════════════════════
+//         Settings Screen
+// ═══════════════════════════════
+class SettingsScreen extends StatefulWidget {
+  final String userId;
+  final String username;
+  final String userCode;
+  const SettingsScreen({required this.userId, required this.username, required this.userCode});
+
+  @override
+  _SettingsScreenState createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late TextEditingController _usernameController;
+String _avatarUrl = '';
+final ImagePicker _picker = ImagePicker();
+Future<void> _pickImage() async {
+  final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+  if (image == null) return;
+
+  try {
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse("$SERVER_URL/upload_avatar"),
+    );
+    request.fields['user_id'] = widget.userId;
+    request.files.add(await http.MultipartFile.fromPath('image', image.path));
+    
+    var response = await request.send();
+    var data = jsonDecode(await response.stream.bytesToString());
+    
+    if (response.statusCode == 200) {
+      setState(() => _avatarUrl = data['avatar_url']);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('avatar_url', data['avatar_url']);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("تم تغيير الصورة!"), backgroundColor: Colors.green),
+      );
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("خطأ في رفع الصورة"), backgroundColor: Colors.red),
+    );
+  }
+}
+  @override
+  void initState() {
+    super.initState();
+    _usernameController = TextEditingController(text: widget.username);
+  }
+
+  Future<void> _saveUsername() async {
+    final newName = _usernameController.text.trim();
+    if (newName.isEmpty) return;
+
+    try {
+      final res = await http.post(
+        Uri.parse("$SERVER_URL/update_username"),
+        headers: {
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
+        body: jsonEncode({
+          "user_id": widget.userId,
+          "username": newName,
+        }),
+      );
+      if (res.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('username', newName);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("تم تغيير الاسم!"), backgroundColor: Colors.green),
+        );
+      }
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("خطأ في الاتصال"), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => LoginScreen()),
+      (route) => false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Color(0xFF0A0A0A),
+      appBar: AppBar(
+        backgroundColor: Color(0xFF0F0F1A),
+        elevation: 0,
+        title: Text("الإعدادات", style: TextStyle(color: Colors.white)),
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          children: [
+            SizedBox(height: 20),
+         GestureDetector(
+  onTap: _pickImage,
+  child: Stack(
+    children: [
+      CircleAvatar(
+        radius: 50,
+        backgroundColor: Color(0xFF7B2FBE),
+        backgroundImage: _avatarUrl.isNotEmpty ? NetworkImage(_avatarUrl) : null,
+        child: _avatarUrl.isEmpty
+            ? Text(
+                widget.username[0].toUpperCase(),
+                style: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold),
+              )
+            : null,
+      ),
+      Positioned(
+        bottom: 0,
+        right: 0,
+        child: Container(
+          padding: EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: Color(0xFF7B2FBE),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.camera_alt, color: Colors.white, size: 18),
+        ),
+      ),
+    ],
+  ),
+),
+            SizedBox(height: 8),
+            Text(
+              "معرفك: ${widget.userCode}",
+              style: TextStyle(color: Color(0xFF9D4EDD), fontSize: 14),
+            ),
+            SizedBox(height: 32),
+            TextField(
+              controller: _usernameController,
+              style: TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                labelText: "اسم المستخدم",
+                labelStyle: TextStyle(color: Colors.grey),
+                filled: true,
+                fillColor: Color(0xFF1A1A2E),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+                prefixIcon: Icon(Icons.person, color: Color(0xFF9D4EDD)),
+              ),
+            ),
+            SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _saveUsername,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Color(0xFF7B2FBE),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: Text("حفظ الاسم", style: TextStyle(color: Colors.white, fontSize: 16)),
+              ),
+            ),
+            SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _logout,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade900,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: Text("تسجيل الخروج", style: TextStyle(color: Colors.white, fontSize: 16)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
