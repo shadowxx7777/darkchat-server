@@ -869,6 +869,7 @@ Future<void> _pickImage() async {
       Uri.parse("$SERVER_URL/upload_avatar"),
     );
     request.fields['user_id'] = widget.userId;
+    raqiust.fields['upload_preset'] = 'ml_default';
     request.files.add(await http.MultipartFile.fromPath('image', image.path));
     
     var response = await request.send();
