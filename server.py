@@ -74,11 +74,23 @@ def init_db():
             username    TEXT NOT NULL,
             email       TEXT NOT NULL UNIQUE,
             password    TEXT NOT NULL,
-            dc_id       TEXT NOT NULL UNIQUE,
+            dc_id       TEXT,
             avatar_url  TEXT DEFAULT '',
             created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+
+    # Add dc_id column if not exists
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN dc_id TEXT")
+    except:
+        pass
+
+    # Add avatar_url column if not exists
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT ''")
+    except:
+        pass
 
     c.execute('''
         CREATE TABLE IF NOT EXISTS conversations (
@@ -86,9 +98,7 @@ def init_db():
             user1_id      INTEGER NOT NULL,
             user2_id      INTEGER NOT NULL,
             created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(user1_id, user2_id),
-            FOREIGN KEY(user1_id) REFERENCES users(id),
-            FOREIGN KEY(user2_id) REFERENCES users(id)
+            UNIQUE(user1_id, user2_id)
         )
     ''')
 
@@ -100,9 +110,7 @@ def init_db():
             content         TEXT NOT NULL,
             is_starred      INTEGER DEFAULT 0,
             read_at         DATETIME,
-            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(conversation_id) REFERENCES conversations(id),
-            FOREIGN KEY(sender_id) REFERENCES users(id)
+            created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
